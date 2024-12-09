@@ -224,40 +224,54 @@ class FilesController {
 
   // Get file content
   static async getFile(req, res) {
-    const { id } = req.params;
-    const token = req.headers['x-token'];
-
     try {
-      const db = dbClient.client.db(dbClient.databaseName);
-      const file = await db
-        .collection('files')
-        .findOne({ _id: new ObjectId(id) });
+      const { id: fileId } = req.params;
+      const size = req.query.size || 0;
+      const token = req.header('X-Token');
+
+      // Validate file ID
+      if (!ObjectId.isValid(fileId)) {
+        return res.status(404).json({ error: 'Not found' });
+      }
+
+      // Connect to the database and retrieve the file
+      const filesCollection = dbClient.db.collection('files');
+      const file = await filesCollection.findOne({ _id: new ObjectId(fileId) });
 
       if (!file) {
         return res.status(404).json({ error: 'Not found' });
       }
 
-      const userId = await redisClient.get(`auth_${token}`);
-      const isOwner = userId && file.userId.toString() === userId;
+      // Authenticate user and check file access
+      if (!file.isPublic) {
+        const usersCollection = dbClient.db.collection('users');
+        const user = token ? await usersCollection.findOne({ token }) : null;
 
-      if (!file.isPublic && !isOwner) {
-        return res.status(404).json({ error: 'Not found' });
+        if (!user || String(file.userId) !== String(user._id)) {
+          return res.status(404).json({ error: 'Not found' });
+        }
       }
 
+      // Check if the file is a folder
       if (file.type === 'folder') {
         return res.status(400).json({ error: "A folder doesn't have content" });
       }
 
-      const filePath = file.localPath;
+      // Verify file existence and read content
+      const filePath = (size && `${file.localPath}_${size}`) || file.localPath;
       try {
-        const fileContent = await fs.readFile(filePath);
-        const mimeType = mime.lookup(file.name) || 'application/octet-stream';
+        const fileData = await fs.readFile(filePath);
+
+        // Determine MIME type and send file content
+        const mimeType = mime.contentType(file.name) || 'application/octet-stream';
         res.setHeader('Content-Type', mimeType);
-        return res.status(200).send(fileContent);
+        return res.status(200).send(fileData);
       } catch (err) {
         return res.status(404).json({ error: 'Not found' });
       }
-    } catch (error) {
+    } catch (err) {
+      // Log error and return a generic response
+      console.error(`Error in getFile: ${err.message}`);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
