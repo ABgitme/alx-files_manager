@@ -231,14 +231,15 @@ class FilesController {
 
       // Validate file ID
       if (!ObjectId.isValid(fileId)) {
+        console.error('Invalid file ID');
         return res.status(404).json({ error: 'Not found' });
       }
 
-      // Connect to the database and retrieve the file
+      // Retrieve file document
       const filesCollection = dbClient.db.collection('files');
       const file = await filesCollection.findOne({ _id: new ObjectId(fileId) });
-
       if (!file) {
+        console.error('File document not found');
         return res.status(404).json({ error: 'Not found' });
       }
 
@@ -248,12 +249,14 @@ class FilesController {
         const user = token ? await usersCollection.findOne({ token }) : null;
 
         if (!user || String(file.userId) !== String(user._id)) {
+          console.error('Unauthorized access');
           return res.status(404).json({ error: 'Not found' });
         }
       }
 
-      // Check if the file is a folder
+      // Check if file is a folder
       if (file.type === 'folder') {
+        console.error('Attempt to access folder content');
         return res.status(400).json({ error: "A folder doesn't have content" });
       }
 
@@ -267,11 +270,11 @@ class FilesController {
         res.setHeader('Content-Type', mimeType);
         return res.status(200).send(fileData);
       } catch (err) {
+        console.error(`File not found at path: ${filePath}`);
         return res.status(404).json({ error: 'Not found' });
       }
     } catch (err) {
-      // Log error and return a generic response
-      console.error(`Error in getFile: ${err.message}`);
+      console.error(`Unhandled error in getFile: ${err.message}`);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
