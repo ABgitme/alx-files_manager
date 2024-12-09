@@ -10,6 +10,7 @@ const router = express.Router();
 // GET routes
 router.get('/status', AppController.getStatus);
 router.get('/stats', AppController.getStats);
+
 /*
 router.get('/connect', AuthController.getConnect);
 router.get('/disconnect', AuthController.getDisconnect);
