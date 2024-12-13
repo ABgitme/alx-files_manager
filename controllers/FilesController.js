@@ -1,11 +1,12 @@
-import { v4 as uuidv4 } from 'uuid';
-import { promises as fsPromises } from 'fs';
-import path from 'path';
-import { ObjectId } from 'mongodb';
-import mime from 'mime-types';
-import fs from 'fs/promises';
-import redisClient from '../utils/redis';
-import dbClient from '../utils/db';
+const { v4: uuidv4 } = require('uuid');
+const fs = require('fs');
+
+const fsPromises = fs.promises;
+const path = require('path');
+const { ObjectId } = require('mongodb');
+const mime = require('mime-types');
+const redisClient = require('../utils/redis');
+const dbClient = require('../utils/db');
 
 class FilesController {
   static async postUpload(req, res) {
@@ -121,10 +122,11 @@ class FilesController {
       return res.status(401).json({ error: 'Unauthorized' });
     }
 
-    const { parentId = 0, page = 0 } = req.query;
+    const parentId = req.query.parentId || 0;
+    const page = parseInt(req.query.page, 10) || 0;
 
     const limit = 20; // Max items per page
-    const skip = parseInt(page, 10) * limit;
+    const skip = page * limit;
 
     try {
       const db = dbClient.client.db(dbClient.databaseName);
@@ -231,53 +233,47 @@ class FilesController {
 
       // Validate file ID
       if (!ObjectId.isValid(fileId)) {
-        console.error('Invalid file ID');
         return res.status(404).json({ error: 'Not found' });
       }
 
       // Retrieve file document
-      const filesCollection = dbClient.db.collection('files');
-      const file = await filesCollection.findOne({ _id: new ObjectId(fileId) });
+      const db = dbClient.client.db(dbClient.databaseName);
+      const file = await db
+        .collection('files')
+        .findOne({ _id: new ObjectId(fileId) });
       if (!file) {
-        console.error('File document not found');
         return res.status(404).json({ error: 'Not found' });
       }
 
       // Authenticate user and check file access
       if (!file.isPublic) {
-        const usersCollection = dbClient.db.collection('users');
-        const user = token ? await usersCollection.findOne({ token }) : null;
-
-        if (!user || String(file.userId) !== String(user._id)) {
-          console.error('Unauthorized access');
+        const userId = await redisClient.get(`auth_${token}`);
+        if (!userId || String(file.userId) !== String(userId)) {
           return res.status(404).json({ error: 'Not found' });
         }
       }
 
       // Check if file is a folder
       if (file.type === 'folder') {
-        console.error('Attempt to access folder content');
         return res.status(400).json({ error: "A folder doesn't have content" });
       }
 
       // Verify file existence and read content
-      const filePath = (size && `${file.localPath}_${size}`) || file.localPath;
+      const filePath = size ? `${file.localPath}_${size}` : file.localPath;
       try {
-        const fileData = await fs.readFile(filePath);
+        const fileData = await fsPromises.readFile(filePath);
 
         // Determine MIME type and send file content
         const mimeType = mime.contentType(file.name) || 'application/octet-stream';
         res.setHeader('Content-Type', mimeType);
         return res.status(200).send(fileData);
       } catch (err) {
-        console.error(`File not found at path: ${filePath}`);
         return res.status(404).json({ error: 'Not found' });
       }
     } catch (err) {
-      console.error(`Unhandled error in getFile: ${err.message}`);
       return res.status(500).json({ error: 'Internal server error' });
     }
   }
 }
 
-export default FilesController;
+module.exports = FilesController;
